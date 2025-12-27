@@ -116,7 +116,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: master
+          ref: main
 
       - name: Download artifacts for SHA
         uses: actions/download-artifact@v4
