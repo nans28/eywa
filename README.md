@@ -6,7 +6,7 @@
 
 [![Release](https://github.com/ShankarKakumani/eywa/actions/workflows/release.yml/badge.svg)](https://github.com/ShankarKakumani/eywa/actions/workflows/release.yml)
 [![Tests](https://github.com/ShankarKakumani/eywa/actions/workflows/rust.yml/badge.svg)](https://github.com/ShankarKakumani/eywa/actions/workflows/rust.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 
 [![GitHub stars](https://img.shields.io/github/stars/ShankarKakumani/eywa?style=social)](https://github.com/ShankarKakumani/eywa/stargazers)
@@ -348,4 +348,4 @@ cargo test               # Run tests (60 tests)
 
 ## License
 
-MIT
+Apache 2.0
