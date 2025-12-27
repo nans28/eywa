@@ -8,6 +8,7 @@
 [![Tests](https://github.com/ShankarKakumani/eywa/actions/workflows/rust.yml/badge.svg)](https://github.com/ShankarKakumani/eywa/actions/workflows/rust.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
+
 [![GitHub stars](https://img.shields.io/github/stars/ShankarKakumani/eywa?style=social)](https://github.com/ShankarKakumani/eywa/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/ShankarKakumani/eywa?style=social)](https://github.com/ShankarKakumani/eywa/network/members)
 ![Visitors](https://visitor-badge.laobi.icu/badge?page_id=ShankarKakumani.eywa)
@@ -34,35 +35,36 @@ Named after the neural network from Avatar that connects all life and stores col
 ## Search Pipeline
 
 ```
-Query
-  │
-  ▼
-┌─────────────────┐
-│  Embed Query    │  bge-base-en-v1.5 (~10ms)
-└────────┬────────┘
-         │
-    ┌────┴────┐
-    ▼         ▼
-┌───────┐ ┌───────┐
-│LanceDB│ │Tantivy│
-│Vector │ │ BM25  │
-│Top 50 │ │Top 50 │
-│(~15ms)│ │(~10ms)│
-└───┬───┘ └───┬───┘
-    │         │
-    └────┬────┘
-         ▼
-┌─────────────────┐
-│ Convex Fusion   │  α=0.8 vector, β=0.2 BM25
-│    Top 20       │
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│ Cross-Encoder   │  ms-marco-MiniLM (~30ms)
-│ Rerank → Top 5  │
-└────────┬────────┘
-         ▼
-     Results (~65ms total)
+                            Query
+                              │
+                              ▼
+                    ┌───────────────────┐
+                    │    Embed Query    │ ── Configurable model (~10ms)
+                    └─────────┬─────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+    ┌───────────────────┐           ┌───────────────────┐
+    │   Vector Search   │           │    BM25 Search    │
+    │     (LanceDB)     │           │     (Tantivy)     │
+    │      Top 50       │           │       Top 50      │
+    │      ~15ms        │           │       ~10ms       │
+    └─────────┬─────────┘           └─────────┬─────────┘
+              │                               │
+              └───────────────┬───────────────┘
+                              ▼
+                    ┌───────────────────┐
+                    │   Convex Fusion   │ ── α=0.8 vector, β=0.2 BM25
+                    │      Top 20       │
+                    └─────────┬─────────┘
+                              ▼
+                    ┌───────────────────┐
+                    │  Cross-Encoder    │ ── Neural reranking (~30ms)
+                    │   Rerank → Top 5  │
+                    └─────────┬─────────┘
+                              ▼
+                           Results
+                        (~65ms total)
 ```
 
 ## Features
@@ -122,27 +124,32 @@ cargo build --release
 sudo cp target/release/eywa /usr/local/bin/
 ```
 
-## Quick Start
+## How to Use
+
+### 1. Initialize (first time only)
 
 ```bash
-# Start the web portal
-eywa serve
-
-# Open in browser
-open http://localhost:8005
+eywa init
 ```
 
-That's it! Use the web portal to add documents, search, and manage your knowledge base.
+This lets you choose your embedding and reranker models:
 
-## Web Portal
+| Model | Size | Best For |
+|-------|------|----------|
+| all-MiniLM-L12-v2 (default) | 134MB | Balanced speed & quality |
+| all-MiniLM-L6-v2 | 86MB | Fastest, lowest memory |
+| bge-base-en-v1.5 | 418MB | Higher quality |
+| nomic-embed-text-v1.5 | 548MB | Best quality |
 
-The web portal is the primary way to interact with Eywa. Start it with:
+Use `eywa init --default` to skip prompts and use defaults.
+
+### 2. Start the Web Portal
 
 ```bash
 eywa serve
 ```
 
-Then open **http://localhost:8005** in your browser.
+Open **http://localhost:8005** in your browser.
 
 | Tab | Description |
 |-----|-------------|
@@ -150,17 +157,27 @@ Then open **http://localhost:8005** in your browser.
 | **Add Documents** | Upload files, paste text, or fetch URLs |
 | **File Explorer** | Browse, preview, and manage all documents |
 
-**Features:**
-- Drag & drop file uploads
-- Real-time search with hybrid retrieval
-- Document preview with syntax highlighting
-- Export documents as ZIP
-- Background ingestion with progress tracking
+### 3. Add Your Documents
+
+Use the web portal or CLI:
+
+```bash
+eywa ingest --source my-docs /path/to/documents
+```
+
+### 4. Search
+
+Use the web portal, CLI, or integrate with Claude/Cursor via MCP.
+
+```bash
+eywa search "how does authentication work"
+```
 
 ## CLI Reference
 
 | Command | Description |
 |---------|-------------|
+| `eywa init` | Configure embedding & reranker models |
 | `eywa ingest -s <source> <path>` | Ingest files from path |
 | `eywa search <query>` | Search the knowledge base |
 | `eywa sources` | List all sources |
@@ -205,8 +222,11 @@ curl -X POST http://localhost:8005/api/ingest \
 
 ## MCP Integration
 
-Add to your Claude Desktop or Cursor MCP config:
+Eywa works as an MCP server for Claude Desktop, Cursor, and other MCP-compatible clients.
 
+### Setup
+
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
@@ -218,9 +238,27 @@ Add to your Claude Desktop or Cursor MCP config:
 }
 ```
 
-**Available Tools:**
-- `search` - Search the knowledge base
-- `list_sources` - List document sources
+**Cursor** (Settings → Features → MCP Servers):
+```json
+{
+  "eywa": {
+    "command": "/usr/local/bin/eywa",
+    "args": ["mcp"]
+  }
+}
+```
+
+### Available Tools
+
+| Tool | Description | Example |
+|------|-------------|---------|
+| `search` | Search the knowledge base | "Search for authentication docs" |
+| `similar_docs` | Find documents similar to a given one | "Find docs similar to doc-123" |
+| `list_sources` | List all document sources | "What sources do I have?" |
+| `list_documents` | List documents in a source | "Show docs in my-project" |
+| `get_document` | Get full document content | "Get the content of doc-456" |
+
+Once configured, Claude/Cursor can automatically search your knowledge base during conversations.
 
 ## Architecture
 
