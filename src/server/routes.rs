@@ -13,9 +13,33 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
-use eywa::{db, Config, ContentStore, FetchUrlRequest, IngestPipeline, IngestRequest, SearchRequest, SearchResult};
+use eywa::{db, chunking, Config, ContentStore, DocumentInput, FetchUrlRequest, IngestPipeline, IngestRequest, SearchRequest, SearchResult};
 use crate::server::AppState;
 use crate::utils::{create_zip, dir_size, extract_text_from_html, extract_title_from_html, lance_db_size, scan_hf_cache};
+
+/// Preprocess documents: extract text from PDFs before queuing
+fn preprocess_documents(documents: Vec<DocumentInput>) -> Vec<DocumentInput> {
+    documents.into_iter().filter_map(|doc| {
+        if doc.is_pdf {
+            // Extract text from base64 PDF
+            match chunking::extract_text_from_base64_pdf(&doc.content) {
+                Ok(text) => Some(DocumentInput {
+                    content: text,
+                    title: doc.title,
+                    file_path: doc.file_path,
+                    is_pdf: false, // Now it's extracted text
+                }),
+                Err(e) => {
+                    eprintln!("Warning: Failed to extract PDF {}: {}",
+                        doc.title.as_deref().unwrap_or("untitled"), e);
+                    None
+                }
+            }
+        } else {
+            Some(doc)
+        }
+    }).collect()
+}
 
 /// Create the main application router
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -250,13 +274,16 @@ async fn handle_queue(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<IngestRequest>,
 ) -> impl IntoResponse {
+    // Preprocess PDFs: extract text from base64 content
+    let documents = preprocess_documents(payload.documents);
+
     let result = {
         let mut queue = state.job_queue.lock().unwrap();
-        queue.queue_documents(&payload.source_id, payload.documents.clone())
+        queue.queue_documents(&payload.source_id, documents.clone())
     };
     match result {
         Ok(job_id) => {
-            let docs_queued = payload.documents.len() as u32;
+            let docs_queued = documents.len() as u32;
             (StatusCode::ACCEPTED, Json(json!({
                 "job_id": job_id,
                 "docs_queued": docs_queued,
@@ -271,13 +298,16 @@ async fn handle_ingest_async(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<IngestRequest>,
 ) -> impl IntoResponse {
+    // Preprocess PDFs: extract text from base64 content
+    let documents = preprocess_documents(payload.documents);
+
     let result = {
         let mut queue = state.job_queue.lock().unwrap();
-        queue.queue_documents(&payload.source_id, payload.documents.clone())
+        queue.queue_documents(&payload.source_id, documents.clone())
     };
     match result {
         Ok(job_id) => {
-            let total_docs = payload.documents.len() as u32;
+            let total_docs = documents.len() as u32;
             (StatusCode::ACCEPTED, Json(json!({
                 "job_id": job_id,
                 "status": "queued",
@@ -662,6 +692,7 @@ async fn handle_fetch_url(
         content,
         title: Some(title.clone()),
         file_path: Some(payload.url.clone()),
+        is_pdf: false,
     }];
 
     match pipeline.ingest_documents(&mut db, data_dir, &source_id, docs).await {

@@ -39,7 +39,7 @@ const AddDocs = {
                     <div class="drop-zone" id="dropZone">
                         <div class="drop-zone-icon">📁</div>
                         <div class="drop-zone-text">Drag & drop files here, or click to browse</div>
-                        <div class="drop-zone-hint">Supports: md, txt, rs, py, js, ts, json, yaml, html, css, and more</div>
+                        <div class="drop-zone-hint">Supports: md, txt, pdf, rs, py, js, ts, json, yaml, html, css, and more</div>
                     </div>
                     <input type="file" id="fileInput" class="hidden" multiple>
                     <input type="file" id="folderInput" class="hidden" webkitdirectory>
@@ -270,7 +270,7 @@ const AddDocs = {
     // File handling
     handleFiles(fileList) {
         const SUPPORTED = new Set([
-            'md', 'txt', 'rs', 'py', 'js', 'ts', 'tsx', 'jsx', 'go', 'java',
+            'md', 'txt', 'pdf', 'rs', 'py', 'js', 'ts', 'tsx', 'jsx', 'go', 'java',
             'c', 'cpp', 'h', 'hpp', 'json', 'yaml', 'yml', 'toml', 'xml',
             'html', 'css', 'scss', 'sql', 'sh', 'bash', 'zsh', 'fish',
             'dart', 'swift', 'kt', 'kts', 'rb', 'php', 'vue', 'svelte'
@@ -345,7 +345,16 @@ const AddDocs = {
             try {
                 const content = await this.readFile(file);
                 const title = file.webkitRelativePath || file.name;
-                documents.push({ content, title, file_path: title });
+                const ext = file.name.split('.').pop()?.toLowerCase();
+                const isPdf = ext === 'pdf';
+
+                documents.push({
+                    // For PDFs: strip data URL prefix, keep only base64
+                    content: isPdf ? content.split(',')[1] : content,
+                    title,
+                    file_path: title,
+                    is_pdf: isPdf
+                });
             } catch (e) {
                 console.error(`Failed to read ${file.name}:`, e);
             }
@@ -388,7 +397,14 @@ const AddDocs = {
             const reader = new FileReader();
             reader.onload = () => resolve(reader.result);
             reader.onerror = () => reject(new Error('Failed to read file'));
-            reader.readAsText(file);
+
+            // PDFs need to be read as base64, not text
+            const ext = file.name.split('.').pop()?.toLowerCase();
+            if (ext === 'pdf') {
+                reader.readAsDataURL(file);  // Returns data:application/pdf;base64,...
+            } else {
+                reader.readAsText(file);
+            }
         });
     },
 

@@ -95,6 +95,7 @@ pub async fn run_init_command(data_dir: &str, default: bool) -> Result<()> {
                             content: doc.content.clone(),
                             title: Some(doc.title.clone()),
                             file_path: doc.file_path.clone(),
+                            is_pdf: false,
                         };
 
                         let result = pipeline

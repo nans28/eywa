@@ -124,6 +124,9 @@ pub struct DocumentInput {
     pub title: Option<String>,
     #[serde(default)]
     pub file_path: Option<String>,
+    /// If true, content is base64-encoded PDF data
+    #[serde(default)]
+    pub is_pdf: bool,
 }
 
 /// API ingest request

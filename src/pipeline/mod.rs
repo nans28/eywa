@@ -388,15 +388,34 @@ impl IngestPipeline {
 
         let mut doc_inputs = Vec::new();
         for file in &files {
-            let content = match std::fs::read_to_string(file) {
-                Ok(c) if !c.trim().is_empty() => c,
-                _ => continue,
+            let ext = file
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+
+            let content = if ext == "pdf" {
+                // Extract text from PDF via pdf_oxide
+                match crate::chunking::extract_text_from_pdf(file) {
+                    Ok(text) if !text.trim().is_empty() => text,
+                    Ok(_) => continue, // Empty content
+                    Err(e) => {
+                        eprintln!("Warning: Failed to extract PDF {}: {}", file.display(), e);
+                        continue;
+                    }
+                }
+            } else {
+                // Read as text (existing behavior)
+                match std::fs::read_to_string(file) {
+                    Ok(c) if !c.trim().is_empty() => c,
+                    _ => continue,
+                }
             };
 
             doc_inputs.push(DocumentInput {
                 content,
                 title: file.file_name().map(|n| n.to_string_lossy().to_string()),
                 file_path: Some(file.to_string_lossy().to_string()),
+                is_pdf: false, // Already extracted if it was a PDF
             });
         }
 

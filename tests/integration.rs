@@ -127,6 +127,7 @@ async fn test_vectordb_create_and_search() {
         content: "Rust is a systems programming language focused on safety and performance.".to_string(),
         title: Some("Rust Overview".to_string()),
         file_path: None,
+        is_pdf: false,
     }];
 
     let result = ingester.ingest_documents(&mut db, data_path, "test-source", docs).await
@@ -164,6 +165,7 @@ async fn test_deduplication() {
         content: "This is a test document.".to_string(),
         title: Some("Test".to_string()),
         file_path: None,
+        is_pdf: false,
     }];
 
     // Ingest same content twice
@@ -188,6 +190,7 @@ async fn test_source_management() {
         content: "Document one content here.".to_string(),
         title: Some("Doc1".to_string()),
         file_path: None,
+        is_pdf: false,
     }];
 
     ingester.ingest_documents(&mut db, data_path, "source-a", docs.clone()).await.unwrap();
@@ -196,6 +199,7 @@ async fn test_source_management() {
         content: "Different document content.".to_string(),
         title: Some("Doc2".to_string()),
         file_path: None,
+        is_pdf: false,
     }];
     ingester.ingest_documents(&mut db, data_path, "source-b", docs2).await.unwrap();
 
@@ -232,11 +236,13 @@ async fn test_ingest_pipeline_indexes_to_bm25() {
             content: "JWT authentication uses tokens for secure API access. JSON Web Tokens (JWT) are an open standard for securely transmitting information between parties as a JSON object. This information can be verified and trusted because it is digitally signed. JWTs can be signed using a secret or a public/private key pair.".to_string(),
             title: Some("Auth Guide".to_string()),
             file_path: None,
+            is_pdf: false,
         },
         eywa::DocumentInput {
             content: "OAuth2 provides authorization framework for third-party apps. OAuth 2.0 is the industry-standard protocol for authorization. It focuses on client developer simplicity while providing specific authorization flows for web applications, desktop applications, mobile phones, and IoT devices.".to_string(),
             title: Some("OAuth Guide".to_string()),
             file_path: None,
+            is_pdf: false,
         },
     ];
 
@@ -272,11 +278,13 @@ async fn test_bm25_boosts_exact_keyword_matches() {
             content: "JWT tokens are used for stateless authentication in web applications. JSON Web Tokens provide a compact and self-contained way for securely transmitting information. They are commonly used in authorization scenarios and can carry claims about the user.".to_string(),
             title: Some("JWT Guide".to_string()),
             file_path: None,
+            is_pdf: false,
         },
         eywa::DocumentInput {
             content: "Token-based authentication provides secure access control mechanisms for modern web applications. This approach eliminates the need for server-side sessions and enables horizontal scaling of backend services.".to_string(),
             title: Some("Auth Overview".to_string()),
             file_path: None,
+            is_pdf: false,
         },
     ];
 
@@ -316,11 +324,13 @@ async fn test_delete_source_removes_from_bm25() {
         content: "GraphQL is a query language for APIs that provides a complete description of the data in your API. It gives clients the power to ask for exactly what they need and nothing more. GraphQL makes it easier to evolve APIs over time.".to_string(),
         title: Some("GraphQL".to_string()),
         file_path: None,
+        is_pdf: false,
     }];
     let docs2 = vec![eywa::DocumentInput {
         content: "REST APIs use HTTP methods for CRUD operations on resources. Representational State Transfer is an architectural style that defines constraints for creating web services. REST APIs are stateless and cacheable.".to_string(),
         title: Some("REST".to_string()),
         file_path: None,
+        is_pdf: false,
     }];
 
     pipeline
@@ -370,11 +380,13 @@ async fn test_hybrid_search_combines_vector_and_bm25() {
             content: "WebSocket provides full-duplex communication channels over a single TCP connection. The WebSocket protocol enables interaction between a web browser or client application and a web server with lower overhead than HTTP polling.".to_string(),
             title: Some("WebSocket Protocol".to_string()),
             file_path: None,
+            is_pdf: false,
         },
         eywa::DocumentInput {
             content: "Real-time bidirectional data streaming for interactive applications enables instant updates without page refreshes. This technology powers live chat, notifications, collaborative editing, and gaming applications.".to_string(),
             title: Some("Streaming Guide".to_string()),
             file_path: None,
+            is_pdf: false,
         },
     ];
 

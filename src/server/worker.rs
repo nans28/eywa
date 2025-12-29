@@ -87,6 +87,7 @@ async fn process_single_document(
         content: doc.content.clone(),
         title: doc.title.clone(),
         file_path: doc.file_path.clone(),
+        is_pdf: false,
     };
 
     // Step 1: Prepare + embed (slow) - NO LOCK HELD
