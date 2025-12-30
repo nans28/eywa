@@ -51,8 +51,15 @@ impl Default for BatchConfig {
     }
 }
 
-/// Batch size for embedding generation
-const EMBEDDING_BATCH_SIZE: usize = 32;
+/// Get optimal batch size based on device type
+/// GPU can saturate with larger batches, CPU works better with smaller
+fn get_embedding_batch_size(device_name: &str) -> usize {
+    if device_name.contains("CPU") {
+        32 // CPU: conservative to avoid memory pressure
+    } else {
+        64 // GPU (Metal/CUDA): better hardware utilization
+    }
+}
 
 /// Prepared document with its chunks ready for processing
 #[derive(Debug, Clone)]
@@ -336,9 +343,10 @@ impl IngestPipeline {
         }
 
         // Step 2: Generate embeddings
+        let batch_size = get_embedding_batch_size(self.embedder.device_name());
         let mut all_embeddings: Vec<Vec<f32>> = Vec::with_capacity(chunks_to_embed.len());
 
-        for (batch_idx, batch) in chunks_to_embed.chunks(EMBEDDING_BATCH_SIZE).enumerate() {
+        for (batch_idx, batch) in chunks_to_embed.chunks(batch_size).enumerate() {
             let texts: Vec<String> = batch.iter().map(|c| c.content.clone()).collect();
             let embeddings = self.embedder.embed_batch(&texts).map_err(|e| {
                 eprintln!(
@@ -463,8 +471,9 @@ impl IngestPipeline {
             .collect();
 
         // Step 3: Generate embeddings (the slow part - no lock needed!)
+        let batch_size = get_embedding_batch_size(self.embedder.device_name());
         let mut all_embeddings: Vec<Vec<f32>> = Vec::with_capacity(all_chunks.len());
-        for (batch_idx, batch) in all_chunks.chunks(EMBEDDING_BATCH_SIZE).enumerate() {
+        for (batch_idx, batch) in all_chunks.chunks(batch_size).enumerate() {
             let texts: Vec<String> = batch.iter().map(|c| c.content.clone()).collect();
             let embeddings = self.embedder.embed_batch(&texts).map_err(|e| {
                 eprintln!(
