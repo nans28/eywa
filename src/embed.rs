@@ -7,7 +7,7 @@
 //! - `metal` - Apple Silicon GPU (macOS)
 //! - `cuda` - NVIDIA GPU
 
-use crate::config::{Config, DevicePreference, EmbeddingModel};
+use crate::config::{Config, DevicePreference, EmbeddingModelConfig};
 use anyhow::{Context, Result};
 use candle_core::{Device, Tensor};
 use candle_nn::VarBuilder;
@@ -85,19 +85,19 @@ impl Embedder {
 
     /// Create a new embedder with a specific model and device preference
     pub fn new_with_model(
-        embedding_model: &EmbeddingModel,
+        embedding_model: &EmbeddingModelConfig,
         device_pref: &DevicePreference,
         show_progress: bool,
     ) -> Result<Self> {
         let device = resolve_device(device_pref)?;
         let model_id = embedding_model.hf_id();
-        let dimensions = embedding_model.dimensions();
+        let dimensions = embedding_model.dimensions;
 
         if show_progress {
             eprintln!(
                 "  {} ({} MB) on {}",
-                embedding_model.name(),
-                embedding_model.size_mb(),
+                embedding_model.name,
+                embedding_model.size_mb,
                 device_name(&device)
             );
         }

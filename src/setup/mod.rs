@@ -8,7 +8,7 @@ mod tui;
 use crate::config::Config;
 use anyhow::Result;
 
-pub use download::ModelDownloader;
+pub use download::{DownloadProgress, ModelDownloader, ModelInfo};
 pub use tui::SetupWizard;
 
 /// Run the setup wizard TUI for downloading models

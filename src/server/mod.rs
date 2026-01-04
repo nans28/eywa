@@ -4,7 +4,7 @@ mod state;
 mod routes;
 mod worker;
 
-pub use state::AppState;
+pub use state::{AppState, DownloadJob, DownloadStatus, DownloadTracker, FileProgress, create_download_tracker};
 use routes::create_router;
 pub use worker::run_queue_worker;
 
@@ -30,6 +30,7 @@ pub async fn run_server(data_dir: &str, port: u16) -> Result<()> {
         search_engine,
         job_queue: Arc::clone(&job_queue),
         data_dir: data_dir.to_string(),
+        downloads: create_download_tracker(),
     });
 
     // Spawn background worker for processing queue
@@ -77,6 +78,13 @@ pub async fn run_server(data_dir: &str, port: u16) -> Result<()> {
     println!("  DELETE /api/docs/:id            - Delete a document");
     println!("  GET    /api/export              - Export all docs as zip");
     println!("  DELETE /api/reset               - Reset all data");
+    println!("  GET    /api/settings            - Get current settings");
+    println!("  PATCH  /api/settings            - Update settings");
+    println!("  GET    /api/models/embedders    - List embedding models");
+    println!("  GET    /api/models/rerankers    - List reranker models");
+    println!("  POST   /api/models/download     - Start model download");
+    println!("  GET    /api/models/download/:id - Get download progress");
+    println!("  GET    /api/models/downloads    - List all downloads");
     println!("\nBackground worker started (jobs persist across restarts).");
 
     axum::serve(listener, app).await?;

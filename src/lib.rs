@@ -22,7 +22,7 @@ pub mod setup;
 pub mod types;
 
 pub use bm25::{BM25Index, BM25Result, ChunkInput};
-pub use config::{Config, DevicePreference, EmbeddingModel, RerankerModel};
+pub use config::{Config, DevicePreference, EmbeddingModel, EmbeddingModelConfig, RerankerModel, RerankerModelConfig};
 pub use content::{ContentStore, DocumentListItem, DocumentRow, SourceStats};
 pub use db::{ChunkRecord, VectorDB};
 pub use embed::{gpu_support_info, Embedder, GpuSupportInfo};

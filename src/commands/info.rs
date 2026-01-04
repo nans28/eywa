@@ -11,13 +11,13 @@ pub fn run_info(data_dir: &str) -> Result<()> {
     match Config::load()? {
         Some(config) => {
             println!("Embedding: {} ({}MB, {} dims)",
-                config.embedding_model.name(),
-                config.embedding_model.size_mb(),
-                config.embedding_model.dimensions()
+                config.embedding_model.name,
+                config.embedding_model.size_mb,
+                config.embedding_model.dimensions
             );
             println!("Reranker:  {} ({}MB)",
-                config.reranker_model.name(),
-                config.reranker_model.size_mb()
+                config.reranker_model.name,
+                config.reranker_model.size_mb
             );
             println!("Device:    {} (preference: {})",
                 config.device.name(),

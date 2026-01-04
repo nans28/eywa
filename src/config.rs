@@ -1,6 +1,7 @@
 //! Configuration management for Eywa
 //!
 //! Handles model selection and persistence of user preferences.
+//! Supports both curated models and custom HuggingFace models.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -37,23 +38,261 @@ impl DevicePreference {
     }
 }
 
-/// Available embedding models
+// ─────────────────────────────────────────────────────────────────────────────
+// Embedding Model Configuration
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Embedding model configuration
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EmbeddingModelConfig {
+    /// Unique identifier (used in config file)
+    pub id: String,
+    /// Display name
+    pub name: String,
+    /// HuggingFace repository ID
+    pub repo_id: String,
+    /// Embedding dimensions
+    pub dimensions: usize,
+    /// Approximate model size in MB
+    #[serde(default)]
+    pub size_mb: u32,
+    /// Whether this is a curated (built-in) model
+    #[serde(default)]
+    pub curated: bool,
+}
+
+impl EmbeddingModelConfig {
+    /// Create a custom model config
+    pub fn custom(repo_id: &str, dimensions: usize) -> Self {
+        let name = repo_id.split('/').last().unwrap_or(repo_id).to_string();
+        Self {
+            id: format!("custom:{}", repo_id),
+            name,
+            repo_id: repo_id.to_string(),
+            dimensions,
+            size_mb: 0,
+            curated: false,
+        }
+    }
+
+    /// HuggingFace model ID (for compatibility with existing code)
+    pub fn hf_id(&self) -> &str {
+        &self.repo_id
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Curated Models
+    // ─────────────────────────────────────────────────────────────────────────
+
+    pub fn all_minilm_l6_v2() -> Self {
+        Self {
+            id: "all-MiniLM-L6-v2".to_string(),
+            name: "all-MiniLM-L6-v2".to_string(),
+            repo_id: "sentence-transformers/all-MiniLM-L6-v2".to_string(),
+            dimensions: 384,
+            size_mb: 86,
+            curated: true,
+        }
+    }
+
+    pub fn all_minilm_l12_v2() -> Self {
+        Self {
+            id: "all-MiniLM-L12-v2".to_string(),
+            name: "all-MiniLM-L12-v2".to_string(),
+            repo_id: "sentence-transformers/all-MiniLM-L12-v2".to_string(),
+            dimensions: 384,
+            size_mb: 134,
+            curated: true,
+        }
+    }
+
+    pub fn bge_small_en_v15() -> Self {
+        Self {
+            id: "bge-small-en-v1.5".to_string(),
+            name: "bge-small-en-v1.5".to_string(),
+            repo_id: "BAAI/bge-small-en-v1.5".to_string(),
+            dimensions: 384,
+            size_mb: 134,
+            curated: true,
+        }
+    }
+
+    pub fn bge_base_en_v15() -> Self {
+        Self {
+            id: "bge-base-en-v1.5".to_string(),
+            name: "bge-base-en-v1.5".to_string(),
+            repo_id: "BAAI/bge-base-en-v1.5".to_string(),
+            dimensions: 768,
+            size_mb: 418,
+            curated: true,
+        }
+    }
+
+    pub fn nomic_embed_text_v15() -> Self {
+        Self {
+            id: "nomic-embed-text-v1.5".to_string(),
+            name: "nomic-embed-text-v1.5".to_string(),
+            repo_id: "nomic-ai/nomic-embed-text-v1.5".to_string(),
+            dimensions: 768,
+            size_mb: 548,
+            curated: true,
+        }
+    }
+
+    /// Get all curated embedding models
+    pub fn curated_models() -> Vec<Self> {
+        vec![
+            Self::all_minilm_l6_v2(),
+            Self::all_minilm_l12_v2(),
+            Self::bge_small_en_v15(),
+            Self::bge_base_en_v15(),
+            Self::nomic_embed_text_v15(),
+        ]
+    }
+
+    /// Find a curated model by ID
+    pub fn find_curated(id: &str) -> Option<Self> {
+        Self::curated_models().into_iter().find(|m| m.id == id)
+    }
+}
+
+impl Default for EmbeddingModelConfig {
+    fn default() -> Self {
+        Self::all_minilm_l12_v2()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reranker Model Configuration
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Reranker model configuration
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RerankerModelConfig {
+    /// Unique identifier (used in config file)
+    pub id: String,
+    /// Display name
+    pub name: String,
+    /// HuggingFace repository ID
+    pub repo_id: String,
+    /// Approximate model size in MB
+    #[serde(default)]
+    pub size_mb: u32,
+    /// Whether this is a curated (built-in) model
+    #[serde(default)]
+    pub curated: bool,
+}
+
+impl RerankerModelConfig {
+    /// Create a custom model config
+    pub fn custom(repo_id: &str) -> Self {
+        let name = repo_id.split('/').last().unwrap_or(repo_id).to_string();
+        Self {
+            id: format!("custom:{}", repo_id),
+            name,
+            repo_id: repo_id.to_string(),
+            size_mb: 0,
+            curated: false,
+        }
+    }
+
+    /// HuggingFace model ID (for compatibility with existing code)
+    pub fn hf_id(&self) -> &str {
+        &self.repo_id
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Curated Models
+    // ─────────────────────────────────────────────────────────────────────────
+
+    pub fn ms_marco_minilm_l6_v2() -> Self {
+        Self {
+            id: "ms-marco-MiniLM-L-6-v2".to_string(),
+            name: "ms-marco-MiniLM-L-6-v2".to_string(),
+            repo_id: "cross-encoder/ms-marco-MiniLM-L-6-v2".to_string(),
+            size_mb: 86,
+            curated: true,
+        }
+    }
+
+    pub fn bge_reranker_base() -> Self {
+        Self {
+            id: "bge-reranker-base".to_string(),
+            name: "bge-reranker-base".to_string(),
+            repo_id: "BAAI/bge-reranker-base".to_string(),
+            size_mb: 278,
+            curated: true,
+        }
+    }
+
+    pub fn jina_reranker_v1_turbo_en() -> Self {
+        Self {
+            id: "jina-reranker-v1-turbo-en".to_string(),
+            name: "jina-reranker-v1-turbo-en".to_string(),
+            repo_id: "jinaai/jina-reranker-v1-turbo-en".to_string(),
+            size_mb: 100,
+            curated: true,
+        }
+    }
+
+    pub fn jina_reranker_v2_base_multilingual() -> Self {
+        Self {
+            id: "jina-reranker-v2-base-multilingual".to_string(),
+            name: "jina-reranker-v2-base-multilingual".to_string(),
+            repo_id: "jinaai/jina-reranker-v2-base-multilingual".to_string(),
+            size_mb: 278,
+            curated: true,
+        }
+    }
+
+    /// Get all curated reranker models
+    pub fn curated_models() -> Vec<Self> {
+        vec![
+            Self::ms_marco_minilm_l6_v2(),
+            Self::bge_reranker_base(),
+            Self::jina_reranker_v1_turbo_en(),
+            Self::jina_reranker_v2_base_multilingual(),
+        ]
+    }
+
+    /// Find a curated model by ID
+    pub fn find_curated(id: &str) -> Option<Self> {
+        Self::curated_models().into_iter().find(|m| m.id == id)
+    }
+}
+
+impl Default for RerankerModelConfig {
+    fn default() -> Self {
+        Self::ms_marco_minilm_l6_v2()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Legacy Enum Types (for backward compatibility)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Legacy embedding model enum (for config migration)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum EmbeddingModel {
-    /// BGE Base - balanced quality and size
     BgeBaseEnV15,
-    /// BGE Small - faster, smaller footprint
     BgeSmallEnV15,
-    /// Nomic Embed - high quality, larger
     NomicEmbedTextV15,
-    /// all-MiniLM-L6-v2 - 6 layers, smallest/fastest
     AllMiniLmL6V2,
-    /// all-MiniLM-L12-v2 - 12 layers, better quality than L6 (default)
     AllMiniLmL12V2,
 }
 
 impl EmbeddingModel {
-    /// Display name for the model
+    pub fn to_config(&self) -> EmbeddingModelConfig {
+        match self {
+            Self::BgeBaseEnV15 => EmbeddingModelConfig::bge_base_en_v15(),
+            Self::BgeSmallEnV15 => EmbeddingModelConfig::bge_small_en_v15(),
+            Self::NomicEmbedTextV15 => EmbeddingModelConfig::nomic_embed_text_v15(),
+            Self::AllMiniLmL6V2 => EmbeddingModelConfig::all_minilm_l6_v2(),
+            Self::AllMiniLmL12V2 => EmbeddingModelConfig::all_minilm_l12_v2(),
+        }
+    }
+
+    // Legacy methods for compatibility
     pub fn name(&self) -> &'static str {
         match self {
             Self::BgeBaseEnV15 => "bge-base-en-v1.5",
@@ -64,7 +303,6 @@ impl EmbeddingModel {
         }
     }
 
-    /// HuggingFace model ID
     pub fn hf_id(&self) -> &'static str {
         match self {
             Self::BgeBaseEnV15 => "BAAI/bge-base-en-v1.5",
@@ -75,7 +313,6 @@ impl EmbeddingModel {
         }
     }
 
-    /// Embedding dimensions
     pub fn dimensions(&self) -> usize {
         match self {
             Self::BgeBaseEnV15 => 768,
@@ -86,7 +323,6 @@ impl EmbeddingModel {
         }
     }
 
-    /// Approximate model size in MB
     pub fn size_mb(&self) -> u32 {
         match self {
             Self::BgeBaseEnV15 => 418,
@@ -97,7 +333,6 @@ impl EmbeddingModel {
         }
     }
 
-    /// Get all available models
     pub fn all() -> Vec<Self> {
         vec![
             Self::BgeBaseEnV15,
@@ -115,21 +350,26 @@ impl Default for EmbeddingModel {
     }
 }
 
-/// Available reranker models
+/// Legacy reranker model enum (for config migration)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum RerankerModel {
-    /// Jina v2 multilingual - code-aware, multilingual (default)
     JinaRerankerV2BaseMultilingual,
-    /// Jina v1 turbo - faster, English only
     JinaRerankerV1TurboEn,
-    /// BGE reranker - balanced
     BgeRerankerBase,
-    /// MS-MARCO MiniLM - legacy, smallest
     MsMarcoMiniLmL6V2,
 }
 
 impl RerankerModel {
-    /// Display name for the model
+    pub fn to_config(&self) -> RerankerModelConfig {
+        match self {
+            Self::JinaRerankerV2BaseMultilingual => RerankerModelConfig::jina_reranker_v2_base_multilingual(),
+            Self::JinaRerankerV1TurboEn => RerankerModelConfig::jina_reranker_v1_turbo_en(),
+            Self::BgeRerankerBase => RerankerModelConfig::bge_reranker_base(),
+            Self::MsMarcoMiniLmL6V2 => RerankerModelConfig::ms_marco_minilm_l6_v2(),
+        }
+    }
+
+    // Legacy methods for compatibility
     pub fn name(&self) -> &'static str {
         match self {
             Self::JinaRerankerV2BaseMultilingual => "jina-reranker-v2-base-multilingual",
@@ -139,7 +379,6 @@ impl RerankerModel {
         }
     }
 
-    /// HuggingFace model ID
     pub fn hf_id(&self) -> &'static str {
         match self {
             Self::JinaRerankerV2BaseMultilingual => "jinaai/jina-reranker-v2-base-multilingual",
@@ -149,7 +388,6 @@ impl RerankerModel {
         }
     }
 
-    /// Approximate model size in MB
     pub fn size_mb(&self) -> u32 {
         match self {
             Self::JinaRerankerV2BaseMultilingual => 278,
@@ -159,7 +397,6 @@ impl RerankerModel {
         }
     }
 
-    /// Get all available models
     pub fn all() -> Vec<Self> {
         vec![
             Self::JinaRerankerV2BaseMultilingual,
@@ -172,22 +409,37 @@ impl RerankerModel {
 
 impl Default for RerankerModel {
     fn default() -> Self {
-        Self::MsMarcoMiniLmL6V2 // BERT-based, works with Candle
+        Self::MsMarcoMiniLmL6V2
     }
 }
 
-/// Eywa configuration
+// ─────────────────────────────────────────────────────────────────────────────
+// Configuration (supports both legacy and new format)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Legacy config format (v1)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LegacyConfig {
+    embedding_model: EmbeddingModel,
+    reranker_model: RerankerModel,
+    #[serde(default)]
+    device: DevicePreference,
+    #[serde(default = "default_version")]
+    version: u32,
+}
+
+/// Eywa configuration (v2 - struct-based models)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Selected embedding model
-    pub embedding_model: EmbeddingModel,
+    pub embedding_model: EmbeddingModelConfig,
     /// Selected reranker model
-    pub reranker_model: RerankerModel,
+    pub reranker_model: RerankerModelConfig,
     /// Device preference (auto, cpu, metal, cuda)
     #[serde(default)]
     pub device: DevicePreference,
-    /// Version of config schema (for future migrations)
-    #[serde(default = "default_version")]
+    /// Version of config schema
+    #[serde(default = "current_version")]
     pub version: u32,
 }
 
@@ -195,13 +447,17 @@ fn default_version() -> u32 {
     1
 }
 
+fn current_version() -> u32 {
+    2
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
-            embedding_model: EmbeddingModel::default(),
-            reranker_model: RerankerModel::default(),
+            embedding_model: EmbeddingModelConfig::default(),
+            reranker_model: RerankerModelConfig::default(),
             device: DevicePreference::default(),
-            version: 1,
+            version: current_version(),
         }
     }
 }
@@ -219,6 +475,7 @@ impl Config {
     }
 
     /// Load config from disk, or return None if it doesn't exist
+    /// Automatically migrates legacy v1 configs to v2 format
     pub fn load() -> Result<Option<Self>> {
         let path = Self::path()?;
         if !path.exists() {
@@ -227,7 +484,31 @@ impl Config {
 
         let content = std::fs::read_to_string(&path)
             .context("Failed to read config file")?;
-        let config: Self = toml::from_str(&content)
+
+        // Try parsing as v2 config first
+        if let Ok(config) = toml::from_str::<Config>(&content) {
+            if config.version >= 2 {
+                return Ok(Some(config));
+            }
+        }
+
+        // Try parsing as legacy v1 config and migrate
+        if let Ok(legacy) = toml::from_str::<LegacyConfig>(&content) {
+            let migrated = Config {
+                embedding_model: legacy.embedding_model.to_config(),
+                reranker_model: legacy.reranker_model.to_config(),
+                device: legacy.device,
+                version: current_version(),
+            };
+            // Save migrated config
+            if let Err(e) = migrated.save() {
+                eprintln!("Warning: Failed to save migrated config: {}", e);
+            }
+            return Ok(Some(migrated));
+        }
+
+        // If both fail, return error
+        let config: Config = toml::from_str(&content)
             .context("Failed to parse config file")?;
         Ok(Some(config))
     }
@@ -252,7 +533,17 @@ impl Config {
 
     /// Get total download size for selected models
     pub fn total_download_size_mb(&self) -> u32 {
-        self.embedding_model.size_mb() + self.reranker_model.size_mb()
+        self.embedding_model.size_mb + self.reranker_model.size_mb
+    }
+
+    /// Update embedding model
+    pub fn set_embedding_model(&mut self, model: EmbeddingModelConfig) {
+        self.embedding_model = model;
+    }
+
+    /// Update reranker model
+    pub fn set_reranker_model(&mut self, model: RerankerModelConfig) {
+        self.reranker_model = model;
     }
 }
 
@@ -275,16 +566,36 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.embedding_model, EmbeddingModel::AllMiniLmL12V2);
-        assert_eq!(config.reranker_model, RerankerModel::MsMarcoMiniLmL6V2);
+        assert_eq!(config.embedding_model.id, "all-MiniLM-L12-v2");
+        assert_eq!(config.reranker_model.id, "ms-marco-MiniLM-L-6-v2");
+        assert_eq!(config.version, 2);
     }
 
     #[test]
-    fn test_model_metadata() {
-        let model = EmbeddingModel::BgeBaseEnV15;
-        assert_eq!(model.dimensions(), 768);
-        assert_eq!(model.size_mb(), 418);
-        assert_eq!(model.hf_id(), "BAAI/bge-base-en-v1.5");
+    fn test_curated_models() {
+        let embedders = EmbeddingModelConfig::curated_models();
+        assert_eq!(embedders.len(), 5);
+
+        let rerankers = RerankerModelConfig::curated_models();
+        assert_eq!(rerankers.len(), 4);
+    }
+
+    #[test]
+    fn test_custom_model() {
+        let model = EmbeddingModelConfig::custom("sentence-transformers/all-mpnet-base-v2", 768);
+        assert_eq!(model.repo_id, "sentence-transformers/all-mpnet-base-v2");
+        assert_eq!(model.dimensions, 768);
+        assert!(!model.curated);
+    }
+
+    #[test]
+    fn test_find_curated() {
+        let model = EmbeddingModelConfig::find_curated("bge-base-en-v1.5");
+        assert!(model.is_some());
+        assert_eq!(model.unwrap().dimensions, 768);
+
+        let not_found = EmbeddingModelConfig::find_curated("nonexistent");
+        assert!(not_found.is_none());
     }
 
     #[test]
@@ -292,7 +603,15 @@ mod tests {
         let config = Config::default();
         let toml_str = toml::to_string_pretty(&config).unwrap();
         let parsed: Config = toml::from_str(&toml_str).unwrap();
-        assert_eq!(config.embedding_model, parsed.embedding_model);
-        assert_eq!(config.reranker_model, parsed.reranker_model);
+        assert_eq!(config.embedding_model.id, parsed.embedding_model.id);
+        assert_eq!(config.reranker_model.id, parsed.reranker_model.id);
+    }
+
+    #[test]
+    fn test_legacy_conversion() {
+        let legacy = EmbeddingModel::BgeBaseEnV15;
+        let config = legacy.to_config();
+        assert_eq!(config.id, "bge-base-en-v1.5");
+        assert_eq!(config.dimensions, 768);
     }
 }

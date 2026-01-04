@@ -2,7 +2,7 @@
 //!
 //! Supports multiple reranker models configured via ~/.eywa/config.toml.
 
-use crate::config::{Config, DevicePreference, RerankerModel};
+use crate::config::{Config, DevicePreference, RerankerModelConfig};
 use crate::embed::{device_name, resolve_device};
 use anyhow::{Context, Result};
 use candle_core::{Device, Tensor, DType, IndexOp};
@@ -35,7 +35,7 @@ impl Reranker {
 
     /// Create a new reranker with a specific model and device preference
     pub fn new_with_model(
-        reranker_model: &RerankerModel,
+        reranker_model: &RerankerModelConfig,
         device_pref: &DevicePreference,
         show_progress: bool,
     ) -> Result<Self> {
@@ -45,8 +45,8 @@ impl Reranker {
         if show_progress {
             eprintln!(
                 "  {} ({} MB) on {}",
-                reranker_model.name(),
-                reranker_model.size_mb(),
+                reranker_model.name,
+                reranker_model.size_mb,
                 device_name(&device)
             );
         }

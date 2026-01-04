@@ -5,16 +5,18 @@ use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, StatusCode},
     response::{Html, IntoResponse, Json, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Router,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
-use eywa::{db, chunking, Config, ContentStore, DocumentInput, FetchUrlRequest, IngestPipeline, IngestRequest, SearchRequest, SearchResult};
-use crate::server::AppState;
+use eywa::{db, chunking, Config, ContentStore, DevicePreference, DocumentInput, EmbeddingModelConfig, FetchUrlRequest, gpu_support_info, IngestPipeline, IngestRequest, RerankerModelConfig, SearchRequest, SearchResult};
+use eywa::setup::{DownloadProgress, ModelDownloader, ModelInfo};
+use crate::server::{AppState, DownloadJob, DownloadStatus, DownloadTracker, FileProgress};
 use crate::utils::{create_zip, dir_size, extract_text_from_html, extract_title_from_html, lance_db_size, scan_hf_cache};
 
 /// Preprocess documents: extract text from PDFs before queuing
@@ -92,6 +94,12 @@ pub fn create_router(state: Arc<AppState>) -> Router {
                 include_str!("../../web/v2/jobs.js")
             )
         }))
+        .route("/settings.js", get(|| async {
+            (
+                [(header::CONTENT_TYPE, "application/javascript")],
+                include_str!("../../web/v2/settings.js")
+            )
+        }))
         .route("/favicon.png", get(|| async {
             (
                 [(header::CONTENT_TYPE, "image/png")],
@@ -137,6 +145,16 @@ fn create_api_routes(state: Arc<AppState>) -> Router {
         .route("/export", get(handle_export))
         .route("/fetch-preview", post(handle_fetch_preview))
         .route("/fetch-url", post(handle_fetch_url))
+        // Settings & Models API
+        .route("/settings", get(handle_get_settings))
+        .route("/settings", patch(handle_update_settings))
+        .route("/models/embedders", get(handle_list_embedders))
+        .route("/models/rerankers", get(handle_list_rerankers))
+        // Model Download API
+        .route("/models/download", post(handle_start_download))
+        .route("/models/download/:job_id", get(handle_get_download))
+        .route("/models/downloads", get(handle_list_downloads))
+        .route("/models/cache/:model_type/:model_id", delete(handle_delete_model_cache))
         .with_state(state)
 }
 
@@ -179,13 +197,13 @@ async fn handle_info(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
     if let Some(cfg) = config {
         response["embedding_model"] = json!({
-            "name": cfg.embedding_model.name(),
-            "size_mb": cfg.embedding_model.size_mb(),
-            "dimensions": cfg.embedding_model.dimensions()
+            "name": cfg.embedding_model.name,
+            "size_mb": cfg.embedding_model.size_mb,
+            "dimensions": cfg.embedding_model.dimensions
         });
         response["reranker_model"] = json!({
-            "name": cfg.reranker_model.name(),
-            "size_mb": cfg.reranker_model.size_mb()
+            "name": cfg.reranker_model.name,
+            "size_mb": cfg.reranker_model.size_mb
         });
     }
 
@@ -703,5 +721,556 @@ async fn handle_fetch_url(
             "chunks_created": result.chunks_created
         }))),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings & Models API
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Response for GET /api/settings
+#[derive(Serialize)]
+struct SettingsResponse {
+    embedding_model: EmbeddingModelConfig,
+    reranker_model: RerankerModelConfig,
+    device: String,
+    available_devices: Vec<String>,
+}
+
+/// Request for PATCH /api/settings
+#[derive(Deserialize)]
+struct UpdateSettingsRequest {
+    #[serde(default)]
+    embedding_model: Option<EmbeddingModelConfig>,
+    #[serde(default)]
+    reranker_model: Option<RerankerModelConfig>,
+    #[serde(default)]
+    device: Option<String>,
+}
+
+/// GET /api/settings - Get current configuration
+async fn handle_get_settings() -> impl IntoResponse {
+    // Get available devices based on compiled features
+    let gpu_info = gpu_support_info();
+    let mut available_devices = vec!["Auto".to_string(), "Cpu".to_string()];
+    if gpu_info.metal_compiled {
+        available_devices.push("Metal".to_string());
+    }
+    if gpu_info.cuda_compiled {
+        available_devices.push("Cuda".to_string());
+    }
+
+    match Config::load() {
+        Ok(Some(config)) => {
+            let response = SettingsResponse {
+                embedding_model: config.embedding_model,
+                reranker_model: config.reranker_model,
+                device: config.device.name().to_string(),
+                available_devices,
+            };
+            (StatusCode::OK, Json(json!(response)))
+        }
+        Ok(None) => {
+            // Return defaults if no config exists
+            let config = Config::default();
+            let response = SettingsResponse {
+                embedding_model: config.embedding_model,
+                reranker_model: config.reranker_model,
+                device: config.device.name().to_string(),
+                available_devices,
+            };
+            (StatusCode::OK, Json(json!(response)))
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        ),
+    }
+}
+
+/// PATCH /api/settings - Update configuration
+async fn handle_update_settings(
+    Json(payload): Json<UpdateSettingsRequest>,
+) -> impl IntoResponse {
+    // Load existing config or create default
+    let mut config = match Config::load() {
+        Ok(Some(c)) => c,
+        Ok(None) => Config::default(),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to load config: {}", e) })),
+            )
+        }
+    };
+
+    let mut model_changed = false;
+
+    // Update embedding model if provided
+    if let Some(new_model) = payload.embedding_model {
+        if new_model.id != config.embedding_model.id {
+            model_changed = true;
+        }
+        config.embedding_model = new_model;
+    }
+
+    // Update reranker model if provided
+    if let Some(new_model) = payload.reranker_model {
+        config.reranker_model = new_model;
+    }
+
+    // Update device preference if provided
+    if let Some(device_str) = payload.device {
+        config.device = match device_str.to_lowercase().as_str() {
+            "cpu" => DevicePreference::Cpu,
+            "metal" => DevicePreference::Metal,
+            "cuda" => DevicePreference::Cuda,
+            _ => DevicePreference::Auto,
+        };
+    }
+
+    // Save config
+    if let Err(e) = config.save() {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to save config: {}", e) })),
+        );
+    }
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "success": true,
+            "model_changed": model_changed,
+            "message": if model_changed {
+                "Settings saved. Embedding model changed - existing documents may need re-indexing."
+            } else {
+                "Settings saved successfully."
+            }
+        })),
+    )
+}
+
+/// GET /api/models/embedders - List available embedding models
+async fn handle_list_embedders() -> impl IntoResponse {
+    let curated = EmbeddingModelConfig::curated_models();
+    let downloader = ModelDownloader::new();
+
+    // Get current selection
+    let current_id = Config::load()
+        .ok()
+        .flatten()
+        .map(|c| c.embedding_model.id);
+
+    let models: Vec<_> = curated
+        .into_iter()
+        .map(|m| {
+            let is_selected = current_id.as_ref() == Some(&m.id);
+            let is_downloaded = downloader.is_cached(&m);
+            json!({
+                "id": m.id,
+                "name": m.name,
+                "repo_id": m.repo_id,
+                "dimensions": m.dimensions,
+                "size_mb": m.size_mb,
+                "curated": m.curated,
+                "selected": is_selected,
+                "downloaded": is_downloaded
+            })
+        })
+        .collect();
+
+    Json(json!({
+        "models": models,
+        "current": current_id
+    }))
+}
+
+/// GET /api/models/rerankers - List available reranker models
+async fn handle_list_rerankers() -> impl IntoResponse {
+    let curated = RerankerModelConfig::curated_models();
+    let downloader = ModelDownloader::new();
+
+    // Get current selection
+    let current_id = Config::load()
+        .ok()
+        .flatten()
+        .map(|c| c.reranker_model.id);
+
+    let models: Vec<_> = curated
+        .into_iter()
+        .map(|m| {
+            let is_selected = current_id.as_ref() == Some(&m.id);
+            let is_downloaded = downloader.is_cached(&m);
+            json!({
+                "id": m.id,
+                "name": m.name,
+                "repo_id": m.repo_id,
+                "size_mb": m.size_mb,
+                "curated": m.curated,
+                "selected": is_selected,
+                "downloaded": is_downloaded
+            })
+        })
+        .collect();
+
+    Json(json!({
+        "models": models,
+        "current": current_id
+    }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model Download API
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Request for POST /api/models/download
+#[derive(Deserialize)]
+struct StartDownloadRequest {
+    #[serde(rename = "type")]
+    model_type: String,  // "embedder" or "reranker"
+    model_id: String,
+}
+
+/// POST /api/models/download - Start downloading a model
+async fn handle_start_download(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<StartDownloadRequest>,
+) -> impl IntoResponse {
+    // Find the model config
+    let (model_name, _repo_id, size_mb) = match payload.model_type.as_str() {
+        "embedder" => {
+            match EmbeddingModelConfig::find_curated(&payload.model_id) {
+                Some(m) => (m.name.clone(), m.repo_id.clone(), m.size_mb),
+                None => return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": format!("Embedder model '{}' not found", payload.model_id) })),
+                ),
+            }
+        }
+        "reranker" => {
+            match RerankerModelConfig::find_curated(&payload.model_id) {
+                Some(m) => (m.name.clone(), m.repo_id.clone(), m.size_mb),
+                None => return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": format!("Reranker model '{}' not found", payload.model_id) })),
+                ),
+            }
+        }
+        _ => return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Invalid model type. Must be 'embedder' or 'reranker'" })),
+        ),
+    };
+
+    // Check if model is already cached
+    let downloader = ModelDownloader::new();
+    let is_cached = match payload.model_type.as_str() {
+        "embedder" => {
+            let model = EmbeddingModelConfig::find_curated(&payload.model_id).unwrap();
+            downloader.is_cached(&model)
+        }
+        "reranker" => {
+            let model = RerankerModelConfig::find_curated(&payload.model_id).unwrap();
+            downloader.is_cached(&model)
+        }
+        _ => false,
+    };
+
+    if is_cached {
+        return (
+            StatusCode::OK,
+            Json(json!({
+                "status": "already_cached",
+                "message": format!("Model '{}' is already downloaded", model_name)
+            })),
+        );
+    }
+
+    // Create job ID
+    let job_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
+    // Create initial job with file placeholders
+    let job = DownloadJob {
+        id: job_id.clone(),
+        model_type: payload.model_type.clone(),
+        model_id: payload.model_id.clone(),
+        model_name: model_name.clone(),
+        status: DownloadStatus::Pending,
+        files: vec![
+            FileProgress { name: "config.json".to_string(), bytes_downloaded: 0, total_bytes: None, done: false },
+            FileProgress { name: "tokenizer.json".to_string(), bytes_downloaded: 0, total_bytes: None, done: false },
+            FileProgress { name: "model.safetensors".to_string(), bytes_downloaded: 0, total_bytes: None, done: false },
+        ],
+        started_at: now,
+        completed_at: None,
+        error: None,
+    };
+
+    // Store job
+    {
+        let mut downloads = state.downloads.lock().unwrap();
+        downloads.insert(job_id.clone(), job);
+    }
+
+    // Spawn background download task
+    let downloads = Arc::clone(&state.downloads);
+    let model_type = payload.model_type.clone();
+    let model_id = payload.model_id.clone();
+    let job_id_clone = job_id.clone();
+
+    tokio::spawn(async move {
+        run_download_task(downloads, job_id_clone, model_type, model_id).await;
+    });
+
+    (
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "job_id": job_id,
+            "status": "pending",
+            "model_name": model_name,
+            "size_mb": size_mb
+        })),
+    )
+}
+
+/// Background task to download a model
+async fn run_download_task(
+    downloads: DownloadTracker,
+    job_id: String,
+    model_type: String,
+    model_id: String,
+) {
+    // Update status to downloading
+    {
+        let mut tracker = downloads.lock().unwrap();
+        if let Some(job) = tracker.get_mut(&job_id) {
+            job.status = DownloadStatus::Downloading;
+        }
+    }
+
+    let downloader = ModelDownloader::new();
+
+    // Create model tasks based on type
+    let result = match model_type.as_str() {
+        "embedder" => {
+            let model = EmbeddingModelConfig::find_curated(&model_id).unwrap();
+            download_model_files(&downloader, &downloads, &job_id, &model).await
+        }
+        "reranker" => {
+            let model = RerankerModelConfig::find_curated(&model_id).unwrap();
+            download_model_files(&downloader, &downloads, &job_id, &model).await
+        }
+        _ => Err(anyhow::anyhow!("Invalid model type")),
+    };
+
+    // Update final status
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let mut tracker = downloads.lock().unwrap();
+    if let Some(job) = tracker.get_mut(&job_id) {
+        job.completed_at = Some(now);
+        match result {
+            Ok(_) => {
+                job.status = DownloadStatus::Done;
+                // Mark all files as done
+                for file in &mut job.files {
+                    file.done = true;
+                }
+            }
+            Err(e) => {
+                job.status = DownloadStatus::Failed;
+                job.error = Some(e.to_string());
+            }
+        }
+    }
+}
+
+/// Download model files with progress tracking
+async fn download_model_files<M: ModelInfo + Clone>(
+    downloader: &ModelDownloader,
+    downloads: &DownloadTracker,
+    job_id: &str,
+    model: &M,
+) -> anyhow::Result<()> {
+
+    // Create download tasks
+    let mut tasks = downloader.create_tasks(model).await?;
+    let model_dir = downloader.model_cache_dir(model.hf_id());
+    let commit_hash = tasks.commit_hash.clone();
+
+    // Download each file
+    for file_task in &mut tasks.files {
+        let file_name = file_task.name.clone();
+        let job_id_owned = job_id.to_string();
+        let downloads_clone = Arc::clone(downloads);
+
+        // Progress callback
+        let on_progress = move |progress: DownloadProgress| {
+            let mut tracker = downloads_clone.lock().unwrap();
+            if let Some(job) = tracker.get_mut(&job_id_owned) {
+                // Find and update the matching file
+                if let Some(file) = job.files.iter_mut().find(|f| f.name == progress.file_name) {
+                    file.bytes_downloaded = progress.bytes_downloaded;
+                    file.total_bytes = progress.total_bytes;
+                    file.done = progress.done;
+                }
+            }
+        };
+
+        downloader
+            .download_file(file_task, &model_dir, commit_hash.as_deref(), on_progress)
+            .await?;
+
+        // Update file as done in tracker
+        {
+            let mut tracker = downloads.lock().unwrap();
+            if let Some(job) = tracker.get_mut(job_id) {
+                if let Some(file) = job.files.iter_mut().find(|f| f.name == file_name) {
+                    file.done = true;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// GET /api/models/download/:job_id - Get download progress
+async fn handle_get_download(
+    State(state): State<Arc<AppState>>,
+    Path(job_id): Path<String>,
+) -> impl IntoResponse {
+    let tracker = state.downloads.lock().unwrap();
+
+    match tracker.get(&job_id) {
+        Some(job) => {
+            let progress = job.total_progress();
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "job_id": job.id,
+                    "model_type": job.model_type,
+                    "model_id": job.model_id,
+                    "model_name": job.model_name,
+                    "status": job.status,
+                    "files": job.files,
+                    "total_progress": progress,
+                    "started_at": job.started_at,
+                    "completed_at": job.completed_at,
+                    "error": job.error
+                })),
+            )
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Download job not found" })),
+        ),
+    }
+}
+
+/// GET /api/models/downloads - List all download jobs
+async fn handle_list_downloads(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let tracker = state.downloads.lock().unwrap();
+
+    let jobs: Vec<_> = tracker
+        .values()
+        .map(|job| {
+            let progress = job.total_progress();
+            json!({
+                "job_id": job.id,
+                "model_type": job.model_type,
+                "model_id": job.model_id,
+                "model_name": job.model_name,
+                "status": job.status,
+                "total_progress": progress,
+                "started_at": job.started_at,
+                "completed_at": job.completed_at,
+                "error": job.error
+            })
+        })
+        .collect();
+
+    Json(json!({ "downloads": jobs }))
+}
+
+/// DELETE /api/models/cache/:model_type/:model_id - Delete a cached model
+async fn handle_delete_model_cache(
+    Path((model_type, model_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    // Get current config to check if model is selected
+    let config = match Config::load() {
+        Ok(Some(c)) => c,
+        Ok(None) => Config::default(),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Failed to load config: {}", e) })),
+            )
+        }
+    };
+
+    // Check if model is currently selected
+    let is_selected = match model_type.as_str() {
+        "embedder" => config.embedding_model.id == model_id,
+        "reranker" => config.reranker_model.id == model_id,
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "Invalid model type. Must be 'embedder' or 'reranker'" })),
+            )
+        }
+    };
+
+    if is_selected {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Cannot delete the currently selected model" })),
+        );
+    }
+
+    // Find the model config
+    let (model_name, result) = match model_type.as_str() {
+        "embedder" => {
+            match EmbeddingModelConfig::find_curated(&model_id) {
+                Some(m) => {
+                    let name = m.name.clone();
+                    let downloader = ModelDownloader::new();
+                    (name, downloader.delete_cached(&m))
+                }
+                None => return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": format!("Embedder model '{}' not found", model_id) })),
+                ),
+            }
+        }
+        "reranker" => {
+            match RerankerModelConfig::find_curated(&model_id) {
+                Some(m) => {
+                    let name = m.name.clone();
+                    let downloader = ModelDownloader::new();
+                    (name, downloader.delete_cached(&m))
+                }
+                None => return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": format!("Reranker model '{}' not found", model_id) })),
+                ),
+            }
+        }
+        _ => unreachable!(),
+    };
+
+    match result {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(json!({
+                "success": true,
+                "message": format!("Deleted cached model '{}'", model_name)
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to delete model: {}", e) })),
+        ),
     }
 }

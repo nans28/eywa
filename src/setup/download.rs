@@ -3,7 +3,7 @@
 //! Downloads model files with streaming progress reporting for TUI visualization.
 //! Fully compatible with hf-hub cache structure.
 
-use crate::config::{EmbeddingModel, RerankerModel};
+use crate::config::{EmbeddingModel, EmbeddingModelConfig, RerankerModel, RerankerModelConfig};
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use std::path::PathBuf;
@@ -270,6 +270,16 @@ impl ModelDownloader {
         self.cache_dir.join(dir_name)
     }
 
+    /// Delete a cached model from disk
+    pub fn delete_cached<M: ModelInfo>(&self, model: &M) -> Result<()> {
+        let model_dir = self.model_cache_dir(model.hf_id());
+        if model_dir.exists() {
+            std::fs::remove_dir_all(&model_dir)
+                .context(format!("Failed to delete model cache at {:?}", model_dir))?;
+        }
+        Ok(())
+    }
+
     /// Find a cached file (checks all snapshots)
     fn find_cached_file(&self, model_dir: &PathBuf, file: &str) -> Option<PathBuf> {
         let snapshots_dir = model_dir.join("snapshots");
@@ -291,19 +301,49 @@ impl ModelDownloader {
     }
 }
 
-/// Trait for model info (implemented by EmbeddingModel and RerankerModel)
+/// Trait for model info (implemented by model config structs)
 pub trait ModelInfo {
-    fn name(&self) -> &'static str;
-    fn hf_id(&self) -> &'static str;
+    fn name(&self) -> &str;
+    fn hf_id(&self) -> &str;
     fn size_mb(&self) -> u32;
 }
 
+// Implementation for new config structs
+impl ModelInfo for EmbeddingModelConfig {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn hf_id(&self) -> &str {
+        &self.repo_id
+    }
+
+    fn size_mb(&self) -> u32 {
+        self.size_mb
+    }
+}
+
+impl ModelInfo for RerankerModelConfig {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn hf_id(&self) -> &str {
+        &self.repo_id
+    }
+
+    fn size_mb(&self) -> u32 {
+        self.size_mb
+    }
+}
+
+// Legacy implementations (for backward compatibility)
 impl ModelInfo for EmbeddingModel {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         EmbeddingModel::name(self)
     }
 
-    fn hf_id(&self) -> &'static str {
+    fn hf_id(&self) -> &str {
         EmbeddingModel::hf_id(self)
     }
 
@@ -313,11 +353,11 @@ impl ModelInfo for EmbeddingModel {
 }
 
 impl ModelInfo for RerankerModel {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         RerankerModel::name(self)
     }
 
-    fn hf_id(&self) -> &'static str {
+    fn hf_id(&self) -> &str {
         RerankerModel::hf_id(self)
     }
 
