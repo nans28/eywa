@@ -3,6 +3,7 @@ const Settings = {
     settings: null,
     embedders: [],
     rerankers: [],
+    appInfo: null,
     activeDownloads: new Map(), // jobId -> intervalId
     selectedEmbedder: null,
     selectedReranker: null,
@@ -15,15 +16,17 @@ const Settings = {
 
         try {
             // Load all data in parallel
-            const [settingsRes, embeddersRes, rerankersRes] = await Promise.all([
+            const [settingsRes, embeddersRes, rerankersRes, infoRes] = await Promise.all([
                 fetch('/api/settings').then(r => r.json()),
                 fetch('/api/models/embedders').then(r => r.json()),
-                fetch('/api/models/rerankers').then(r => r.json())
+                fetch('/api/models/rerankers').then(r => r.json()),
+                fetch('/api/info').then(r => r.json())
             ]);
 
             this.settings = settingsRes;
             this.embedders = embeddersRes.models || [];
             this.rerankers = rerankersRes.models || [];
+            this.appInfo = infoRes.app || {};
 
             // Set initial selections
             this.selectedEmbedder = this.settings.embedding_model?.id;
@@ -70,6 +73,33 @@ const Settings = {
                     <span class="warning-icon">⚠️</span>
                     Changing the embedding model requires re-indexing all documents.
                 </div>
+
+                <section class="settings-section about-section">
+                    <h3>About</h3>
+                    <div class="about-info">
+                        <div class="about-row">
+                            <span class="about-label">Version</span>
+                            <span class="about-value">
+                                <span class="version-badge">v${this.appInfo.version || '0.1.0'}</span>
+                            </span>
+                        </div>
+                        <div class="about-row">
+                            <span class="about-label">GPU Support</span>
+                            <span class="about-value">${this.appInfo.gpu_support || 'CPU only'}</span>
+                        </div>
+                        <div class="about-links">
+                            <a href="https://github.com/AkshayKumarC132/eywa" target="_blank" rel="noopener">
+                                GitHub
+                            </a>
+                            <a href="https://github.com/AkshayKumarC132/eywa/issues" target="_blank" rel="noopener">
+                                Report Issue
+                            </a>
+                            <a href="https://github.com/AkshayKumarC132/eywa/blob/main/LICENSE" target="_blank" rel="noopener">
+                                Apache 2.0 License
+                            </a>
+                        </div>
+                    </div>
+                </section>
             </div>
         `;
 

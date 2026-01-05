@@ -225,6 +225,13 @@ async fn handle_info(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }).collect();
     response["cached_models"] = json!(cached_models_json);
 
+    // Add app info (version, GPU support)
+    let gpu_info = gpu_support_info();
+    response["app"] = json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "gpu_support": gpu_info.summary()
+    });
+
     (StatusCode::OK, Json(response))
 }
 

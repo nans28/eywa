@@ -2208,3 +2208,65 @@ textarea {
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
 }
+
+/* About Section */
+.about-section {
+    margin-top: 32px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 24px;
+}
+
+.about-info {
+    background: rgba(26, 26, 46, 0.4);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.about-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+}
+
+.about-row:not(:last-child) {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.about-label {
+    color: #a0a0a0;
+    font-size: 0.9rem;
+}
+
+.about-value {
+    color: #e0e0e0;
+    font-size: 0.9rem;
+}
+
+.version-badge {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.about-links {
+    display: flex;
+    gap: 16px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.about-links a {
+    color: #00d9ff;
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: opacity 0.2s;
+}
+
+.about-links a:hover {
+    opacity: 0.8;
+    text-decoration: underline;
+}
