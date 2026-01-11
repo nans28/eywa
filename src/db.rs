@@ -58,7 +58,7 @@ impl VectorDB {
     pub async fn new(data_dir: &str) -> Result<Self> {
         // Get embedding dimension from config
         let embedding_dim = Config::load()?
-            .map(|c| c.embedding_model.dimensions())
+            .map(|c| c.embedding_model.dimensions)
             .unwrap_or(768); // Default to BGE base dimensions
 
         let conn = connect(data_dir)

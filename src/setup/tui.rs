@@ -153,7 +153,7 @@ impl SetupWizard {
         let downloader = ModelDownloader::new();
 
         // Download embedding model
-        println!("  {} ({}MB)", self.config.embedding_model.name(), self.config.embedding_model.size_mb());
+        println!("  {} ({}MB)", self.config.embedding_model.name, self.config.embedding_model.size_mb);
         let embedding_task = downloader.create_tasks(&self.config.embedding_model).await?;
         let embedding_dir = downloader.model_cache_dir(&embedding_task.repo_id);
         let embedding_commit = embedding_task.commit_hash.clone();
@@ -173,7 +173,7 @@ impl SetupWizard {
         }
 
         // Download reranker model
-        println!("  {} ({}MB)", self.config.reranker_model.name(), self.config.reranker_model.size_mb());
+        println!("  {} ({}MB)", self.config.reranker_model.name, self.config.reranker_model.size_mb);
         let reranker_task = downloader.create_tasks(&self.config.reranker_model).await?;
         let reranker_dir = downloader.model_cache_dir(&reranker_task.repo_id);
         let reranker_commit = reranker_task.commit_hash.clone();
@@ -206,10 +206,10 @@ impl SetupWizard {
         println!();
         println!("  \x1b[1mDownloading Models\x1b[0m");
         println!();
-        println!("  {}                                    0 B    0%", self.config.embedding_model.name());  // emb name
+        println!("  {}                                    0 B    0%", self.config.embedding_model.name);  // emb name
         println!("  \x1b[90m{}\x1b[0m", "━".repeat(54));  // emb bar
         println!();  // spacer
-        println!("  {}                                    0 B    0%", self.config.reranker_model.name());  // rer name
+        println!("  {}                                    0 B    0%", self.config.reranker_model.name);  // rer name
         println!("  \x1b[90m{}\x1b[0m", "━".repeat(54));  // rer bar
         println!();
         println!("  \x1b[90mTotal: 0 B / 0 B    ETA: --\x1b[0m");
@@ -265,7 +265,7 @@ impl SetupWizard {
             } else {
                 // Show model name with "Loading..." status while waiting for task
                 stdout().execute(terminal::Clear(terminal::ClearType::CurrentLine))?;
-                let name = self.config.embedding_model.name();
+                let name = &self.config.embedding_model.name;
                 let right_part = "\x1b[90mLoading...\x1b[0m";
                 let left_pad = BAR_WIDTH.saturating_sub(name.len()).saturating_sub(10);
                 println!("  {}{}{}", name, " ".repeat(left_pad), right_part);
@@ -305,7 +305,7 @@ impl SetupWizard {
             } else {
                 // Show model name with "Loading..." status while waiting for task
                 stdout().execute(terminal::Clear(terminal::ClearType::CurrentLine))?;
-                let name = self.config.reranker_model.name();
+                let name = &self.config.reranker_model.name;
                 let right_part = "\x1b[90mLoading...\x1b[0m";
                 let left_pad = BAR_WIDTH.saturating_sub(name.len()).saturating_sub(10);
                 println!("  {}{}{}", name, " ".repeat(left_pad), right_part);
@@ -474,13 +474,13 @@ fn render_config(frame: &mut Frame, area: Rect, state: &WizardState, config: &Co
         .embedding_task
         .as_ref()
         .map(|t| t.name.clone())
-        .unwrap_or_else(|| config.embedding_model.name().to_string());
+        .unwrap_or_else(|| config.embedding_model.name.clone());
 
     let reranker_name = state
         .reranker_task
         .as_ref()
         .map(|t| t.name.clone())
-        .unwrap_or_else(|| config.reranker_model.name().to_string());
+        .unwrap_or_else(|| config.reranker_model.name.clone());
 
     let config_text = vec![
         Line::from(vec![Span::styled(
@@ -491,7 +491,7 @@ fn render_config(frame: &mut Frame, area: Rect, state: &WizardState, config: &Co
             Span::raw("  ├─ Embedding:  "),
             Span::styled(&embedding_name, Style::default().fg(Color::White)),
             Span::styled(
-                format!(" ({}d)", config.embedding_model.dimensions()),
+                format!(" ({}d)", config.embedding_model.dimensions),
                 Style::default().fg(Color::DarkGray),
             ),
         ]),

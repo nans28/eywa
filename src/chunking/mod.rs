@@ -3,7 +3,7 @@
 //! Content-aware chunking strategies for different file types:
 //! - Markdown: Header-aware with hierarchical metadata
 //! - Text: Paragraph-based splitting
-//! - PDF: Text extraction (stub for now)
+//! - PDF: Text extraction via pdf_oxide (converts to Markdown)
 //! - Fallback: Recursive char-based for unknown types
 
 pub mod fallback;
@@ -13,7 +13,7 @@ pub mod text;
 
 pub use fallback::FallbackChunker;
 pub use markdown::MarkdownChunker;
-pub use pdf::PdfChunker;
+pub use pdf::{extract_text_from_base64_pdf, extract_text_from_pdf, PdfChunker};
 pub use text::TextChunker;
 
 use std::path::Path;

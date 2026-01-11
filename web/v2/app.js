@@ -118,7 +118,7 @@ const App = {
 
         // Restore tab from URL hash
         const hash = window.location.hash.slice(1);
-        if (hash && ['dashboard', 'add-docs', 'explorer'].includes(hash)) {
+        if (hash && ['dashboard', 'add-docs', 'explorer', 'settings'].includes(hash)) {
             await this.switchTab(hash);
         } else {
             await Dashboard.init();
@@ -158,6 +158,9 @@ const App = {
                 break;
             case 'explorer':
                 await Explorer.init();
+                break;
+            case 'settings':
+                await Settings.init();
                 break;
         }
     },

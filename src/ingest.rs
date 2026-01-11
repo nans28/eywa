@@ -393,6 +393,7 @@ impl<'a> Ingester<'a> {
                 content,
                 title: file.file_name().map(|n| n.to_string_lossy().to_string()),
                 file_path: Some(file.to_string_lossy().to_string()),
+                is_pdf: false,
             });
         }
 

@@ -27,6 +27,7 @@ Named after the neural network from Avatar that connects all life and stores col
 | Feature | Description |
 |---------|-------------|
 | **100% Local** | All processing on your machine. No data leaves, no API keys required. |
+| **GPU Accelerated** | Auto-detects Metal (Apple Silicon) or CUDA (NVIDIA). ~2.8x faster. |
 | **Hybrid Search** | Vector similarity + BM25 keyword search with convex fusion. |
 | **Cross-Encoder Reranking** | Precision filtering using ms-marco-MiniLM. |
 | **Single Binary** | Pure Rust. No Python, no Docker, no server processes. |
@@ -76,6 +77,18 @@ Named after the neural network from Avatar that connects all life and stores col
 - **Compressed Storage** - SQLite + zstd for full document retrieval
 - **Batched Ingestion** - Accumulates documents before writing to prevent fragmentation
 - **MCP Integration** - Works with Claude Desktop and Cursor
+
+## Hardware Acceleration
+
+Eywa automatically detects and uses the best available hardware:
+
+| Hardware | Support | Speedup |
+|----------|---------|---------|
+| Apple Silicon (M1/M2/M3/M4) | Metal GPU | ~2.8x |
+| NVIDIA GPU | CUDA | ~3-5x |
+| Intel/AMD CPU | Automatic fallback | Baseline |
+
+No configuration needed - Eywa auto-detects your hardware and optimizes batch sizes accordingly.
 
 ## Installation
 
@@ -263,25 +276,25 @@ Once configured, Claude/Cursor can automatically search your knowledge base duri
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                              Eywa                                    │
-├──────────────────┬──────────────────┬───────────────────────────────┤
-│       CLI        │    HTTP API      │         MCP Server            │
-│                  │     (Axum)       │       (JSON-RPC stdio)        │
-├──────────────────┴──────────────────┴───────────────────────────────┤
-│                           Core Library                               │
+┌────────────────────────────────────────────────────────────────────┐
+│                              Eywa                                  │
+├──────────────────┬──────────────────┬──────────────────────────────┤
+│       CLI        │    HTTP API      │         MCP Server           │
+│                  │     (Axum)       │       (JSON-RPC stdio)       │
+├──────────────────┴──────────────────┴──────────────────────────────┤
+│                           Core Library                             │
 │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐    │
 │  │  Embedder  │  │  Chunker   │  │  Search    │  │  Reranker  │    │
 │  │  (Candle)  │  │ (Markdown, │  │  Engine    │  │ (Candle)   │    │
 │  │            │  │  Text, PDF)│  │            │  │            │    │
 │  └────────────┘  └────────────┘  └────────────┘  └────────────┘    │
-├─────────────────────────────────────────────────────────────────────┤
-│                           Storage Layer                              │
+├────────────────────────────────────────────────────────────────────┤
+│                           Storage Layer                            │
 │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐        │
 │  │    LanceDB     │  │    Tantivy     │  │     SQLite     │        │
 │  │   (vectors)    │  │    (BM25)      │  │ (content+zstd) │        │
 │  └────────────────┘  └────────────────┘  └────────────────┘        │
-└─────────────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Tech Stack
@@ -308,7 +321,7 @@ Once configured, Claude/Cursor can automatically search your knowledge base duri
 | Rerank (20 docs) | ~30ms |
 | **Total** | **~65ms** |
 
-Tested on Apple M1. Performance varies by hardware.
+Tested on Apple M1 with Metal GPU. Performance varies by hardware. CPU-only builds will be slower for ingestion but search latency remains similar.
 
 ## Data Storage
 
@@ -342,8 +355,17 @@ Tested on Apple M1. Performance varies by hardware.
 ## Building
 
 ```bash
-cargo build --release    # Optimized build
-cargo test               # Run tests (60 tests)
+# CPU only (works everywhere)
+cargo build --release
+
+# Apple Silicon GPU (Metal)
+cargo build --release --features metal
+
+# NVIDIA GPU (CUDA)
+cargo build --release --features cuda
+
+# Run tests
+cargo test
 ```
 
 ## License

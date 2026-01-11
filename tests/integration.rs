@@ -1,19 +1,19 @@
 //! Integration tests for Eywa
 
-use eywa::{BM25Index, ContentStore, Embedder, EmbeddingModel, IngestPipeline, Ingester, SearchEngine, VectorDB};
+use eywa::{BM25Index, ContentStore, DevicePreference, Embedder, EmbeddingModelConfig, IngestPipeline, Ingester, SearchEngine, VectorDB};
 use std::sync::Arc;
 use tempfile::tempdir;
 
 #[test]
 fn test_embedder_creates_correct_dimensions() {
-    let embedder = Embedder::new_with_model(&EmbeddingModel::default(), false).expect("Failed to create embedder");
+    let embedder = Embedder::new_with_model(&EmbeddingModelConfig::default(), &DevicePreference::Cpu, false).expect("Failed to create embedder");
     // Dimension depends on configured model (384 for MiniLM, 768 for BGE)
     assert!(embedder.dimension() > 0, "Should have positive dimensions");
 }
 
 #[test]
 fn test_embedder_single_text() {
-    let embedder = Embedder::new_with_model(&EmbeddingModel::default(), false).expect("Failed to create embedder");
+    let embedder = Embedder::new_with_model(&EmbeddingModelConfig::default(), &DevicePreference::Cpu, false).expect("Failed to create embedder");
     let embedding = embedder.embed("hello world").expect("Failed to embed");
 
     assert_eq!(embedding.len(), embedder.dimension());
@@ -25,7 +25,7 @@ fn test_embedder_single_text() {
 
 #[test]
 fn test_embedder_batch() {
-    let embedder = Embedder::new_with_model(&EmbeddingModel::default(), false).expect("Failed to create embedder");
+    let embedder = Embedder::new_with_model(&EmbeddingModelConfig::default(), &DevicePreference::Cpu, false).expect("Failed to create embedder");
     let texts = vec!["hello".to_string(), "world".to_string(), "test".to_string()];
     let embeddings = embedder.embed_batch(&texts).expect("Failed to batch embed");
 
@@ -37,7 +37,7 @@ fn test_embedder_batch() {
 
 #[test]
 fn test_embedder_similar_texts_have_high_similarity() {
-    let embedder = Embedder::new_with_model(&EmbeddingModel::default(), false).expect("Failed to create embedder");
+    let embedder = Embedder::new_with_model(&EmbeddingModelConfig::default(), &DevicePreference::Cpu, false).expect("Failed to create embedder");
 
     let emb1 = embedder.embed("The cat sat on the mat").unwrap();
     let emb2 = embedder.embed("A cat is sitting on a mat").unwrap();
@@ -118,7 +118,7 @@ async fn test_vectordb_create_and_search() {
     let dir = tempdir().expect("Failed to create temp dir");
     let data_path = dir.path();
 
-    let embedder = Embedder::new_with_model(&EmbeddingModel::default(), false).expect("Failed to create embedder");
+    let embedder = Embedder::new_with_model(&EmbeddingModelConfig::default(), &DevicePreference::Cpu, false).expect("Failed to create embedder");
     let mut db = VectorDB::new(data_path.to_str().unwrap()).await.expect("Failed to create db");
 
     // Ingest a document
@@ -127,6 +127,7 @@ async fn test_vectordb_create_and_search() {
         content: "Rust is a systems programming language focused on safety and performance.".to_string(),
         title: Some("Rust Overview".to_string()),
         file_path: None,
+        is_pdf: false,
     }];
 
     let result = ingester.ingest_documents(&mut db, data_path, "test-source", docs).await
@@ -156,7 +157,7 @@ async fn test_deduplication() {
     let dir = tempdir().expect("Failed to create temp dir");
     let data_path = dir.path();
 
-    let embedder = Embedder::new_with_model(&EmbeddingModel::default(), false).expect("Failed to create embedder");
+    let embedder = Embedder::new_with_model(&EmbeddingModelConfig::default(), &DevicePreference::Cpu, false).expect("Failed to create embedder");
     let mut db = VectorDB::new(data_path.to_str().unwrap()).await.expect("Failed to create db");
     let ingester = Ingester::new(&embedder);
 
@@ -164,6 +165,7 @@ async fn test_deduplication() {
         content: "This is a test document.".to_string(),
         title: Some("Test".to_string()),
         file_path: None,
+        is_pdf: false,
     }];
 
     // Ingest same content twice
@@ -179,7 +181,7 @@ async fn test_source_management() {
     let dir = tempdir().expect("Failed to create temp dir");
     let data_path = dir.path();
 
-    let embedder = Embedder::new_with_model(&EmbeddingModel::default(), false).expect("Failed to create embedder");
+    let embedder = Embedder::new_with_model(&EmbeddingModelConfig::default(), &DevicePreference::Cpu, false).expect("Failed to create embedder");
     let mut db = VectorDB::new(data_path.to_str().unwrap()).await.expect("Failed to create db");
     let ingester = Ingester::new(&embedder);
 
@@ -188,6 +190,7 @@ async fn test_source_management() {
         content: "Document one content here.".to_string(),
         title: Some("Doc1".to_string()),
         file_path: None,
+        is_pdf: false,
     }];
 
     ingester.ingest_documents(&mut db, data_path, "source-a", docs.clone()).await.unwrap();
@@ -196,6 +199,7 @@ async fn test_source_management() {
         content: "Different document content.".to_string(),
         title: Some("Doc2".to_string()),
         file_path: None,
+        is_pdf: false,
     }];
     ingester.ingest_documents(&mut db, data_path, "source-b", docs2).await.unwrap();
 
@@ -220,7 +224,7 @@ async fn test_ingest_pipeline_indexes_to_bm25() {
     let dir = tempdir().expect("Failed to create temp dir");
     let data_path = dir.path();
 
-    let embedder = Arc::new(Embedder::new_with_model(&EmbeddingModel::default(), false).expect("Failed to create embedder"));
+    let embedder = Arc::new(Embedder::new_with_model(&EmbeddingModelConfig::default(), &DevicePreference::Cpu, false).expect("Failed to create embedder"));
     let bm25_index = Arc::new(BM25Index::open(data_path).expect("Failed to create BM25 index"));
     let mut db = VectorDB::new(data_path.to_str().unwrap()).await.expect("Failed to create db");
 
@@ -232,11 +236,13 @@ async fn test_ingest_pipeline_indexes_to_bm25() {
             content: "JWT authentication uses tokens for secure API access. JSON Web Tokens (JWT) are an open standard for securely transmitting information between parties as a JSON object. This information can be verified and trusted because it is digitally signed. JWTs can be signed using a secret or a public/private key pair.".to_string(),
             title: Some("Auth Guide".to_string()),
             file_path: None,
+            is_pdf: false,
         },
         eywa::DocumentInput {
             content: "OAuth2 provides authorization framework for third-party apps. OAuth 2.0 is the industry-standard protocol for authorization. It focuses on client developer simplicity while providing specific authorization flows for web applications, desktop applications, mobile phones, and IoT devices.".to_string(),
             title: Some("OAuth Guide".to_string()),
             file_path: None,
+            is_pdf: false,
         },
     ];
 
@@ -260,7 +266,7 @@ async fn test_bm25_boosts_exact_keyword_matches() {
     let dir = tempdir().expect("Failed to create temp dir");
     let data_path = dir.path();
 
-    let embedder = Arc::new(Embedder::new_with_model(&EmbeddingModel::default(), false).expect("Failed to create embedder"));
+    let embedder = Arc::new(Embedder::new_with_model(&EmbeddingModelConfig::default(), &DevicePreference::Cpu, false).expect("Failed to create embedder"));
     let bm25_index = Arc::new(BM25Index::open(data_path).expect("Failed to create BM25 index"));
     let mut db = VectorDB::new(data_path.to_str().unwrap()).await.expect("Failed to create db");
 
@@ -272,11 +278,13 @@ async fn test_bm25_boosts_exact_keyword_matches() {
             content: "JWT tokens are used for stateless authentication in web applications. JSON Web Tokens provide a compact and self-contained way for securely transmitting information. They are commonly used in authorization scenarios and can carry claims about the user.".to_string(),
             title: Some("JWT Guide".to_string()),
             file_path: None,
+            is_pdf: false,
         },
         eywa::DocumentInput {
             content: "Token-based authentication provides secure access control mechanisms for modern web applications. This approach eliminates the need for server-side sessions and enables horizontal scaling of backend services.".to_string(),
             title: Some("Auth Overview".to_string()),
             file_path: None,
+            is_pdf: false,
         },
     ];
 
@@ -305,7 +313,7 @@ async fn test_delete_source_removes_from_bm25() {
     let dir = tempdir().expect("Failed to create temp dir");
     let data_path = dir.path();
 
-    let embedder = Arc::new(Embedder::new_with_model(&EmbeddingModel::default(), false).expect("Failed to create embedder"));
+    let embedder = Arc::new(Embedder::new_with_model(&EmbeddingModelConfig::default(), &DevicePreference::Cpu, false).expect("Failed to create embedder"));
     let bm25_index = Arc::new(BM25Index::open(data_path).expect("Failed to create BM25 index"));
     let mut db = VectorDB::new(data_path.to_str().unwrap()).await.expect("Failed to create db");
 
@@ -316,11 +324,13 @@ async fn test_delete_source_removes_from_bm25() {
         content: "GraphQL is a query language for APIs that provides a complete description of the data in your API. It gives clients the power to ask for exactly what they need and nothing more. GraphQL makes it easier to evolve APIs over time.".to_string(),
         title: Some("GraphQL".to_string()),
         file_path: None,
+        is_pdf: false,
     }];
     let docs2 = vec![eywa::DocumentInput {
         content: "REST APIs use HTTP methods for CRUD operations on resources. Representational State Transfer is an architectural style that defines constraints for creating web services. REST APIs are stateless and cacheable.".to_string(),
         title: Some("REST".to_string()),
         file_path: None,
+        is_pdf: false,
     }];
 
     pipeline
@@ -356,7 +366,7 @@ async fn test_hybrid_search_combines_vector_and_bm25() {
     let dir = tempdir().expect("Failed to create temp dir");
     let data_path = dir.path();
 
-    let embedder = Arc::new(Embedder::new_with_model(&EmbeddingModel::default(), false).expect("Failed to create embedder"));
+    let embedder = Arc::new(Embedder::new_with_model(&EmbeddingModelConfig::default(), &DevicePreference::Cpu, false).expect("Failed to create embedder"));
     let bm25_index = Arc::new(BM25Index::open(data_path).expect("Failed to create BM25 index"));
     let mut db = VectorDB::new(data_path.to_str().unwrap()).await.expect("Failed to create db");
 
@@ -370,11 +380,13 @@ async fn test_hybrid_search_combines_vector_and_bm25() {
             content: "WebSocket provides full-duplex communication channels over a single TCP connection. The WebSocket protocol enables interaction between a web browser or client application and a web server with lower overhead than HTTP polling.".to_string(),
             title: Some("WebSocket Protocol".to_string()),
             file_path: None,
+            is_pdf: false,
         },
         eywa::DocumentInput {
             content: "Real-time bidirectional data streaming for interactive applications enables instant updates without page refreshes. This technology powers live chat, notifications, collaborative editing, and gaming applications.".to_string(),
             title: Some("Streaming Guide".to_string()),
             file_path: None,
+            is_pdf: false,
         },
     ];
 

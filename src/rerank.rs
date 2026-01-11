@@ -2,13 +2,22 @@
 //!
 //! Supports multiple reranker models configured via ~/.eywa/config.toml.
 
-use crate::config::{Config, RerankerModel};
+use crate::config::{Config, DevicePreference, RerankerModelConfig};
+use crate::embed::{device_name, resolve_device};
 use anyhow::{Context, Result};
 use candle_core::{Device, Tensor, DType, IndexOp};
 use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, Config as BertConfig};
 use hf_hub::{api::sync::ApiBuilder, Repo, RepoType};
 use tokenizers::Tokenizer;
+
+/// Get optimal batch size for reranking based on device
+fn get_rerank_batch_size(device: &Device) -> usize {
+    match device {
+        Device::Cpu => 8,   // CPU: smaller batches
+        _ => 16,            // GPU: larger batches for better utilization
+    }
+}
 
 pub struct Reranker {
     model: BertModel,
@@ -21,16 +30,25 @@ impl Reranker {
     pub fn new() -> Result<Self> {
         let config = Config::load()?
             .ok_or_else(|| anyhow::anyhow!("Eywa not initialized. Run 'eywa' or 'eywa init' first."))?;
-        Self::new_with_model(&config.reranker_model, true)
+        Self::new_with_model(&config.reranker_model, &config.device, true)
     }
 
-    /// Create a new reranker with a specific model
-    pub fn new_with_model(reranker_model: &RerankerModel, show_progress: bool) -> Result<Self> {
-        let device = Device::Cpu;
+    /// Create a new reranker with a specific model and device preference
+    pub fn new_with_model(
+        reranker_model: &RerankerModelConfig,
+        device_pref: &DevicePreference,
+        show_progress: bool,
+    ) -> Result<Self> {
+        let device = resolve_device(device_pref)?;
         let model_id = reranker_model.hf_id();
 
         if show_progress {
-            eprintln!("  {} ({} MB)", reranker_model.name(), reranker_model.size_mb());
+            eprintln!(
+                "  {} ({} MB) on {}",
+                reranker_model.name,
+                reranker_model.size_mb,
+                device_name(&device)
+            );
         }
 
         // Download model files from HuggingFace with progress
@@ -76,50 +94,76 @@ impl Reranker {
             return Ok(vec![]);
         }
 
-        let mut scores = Vec::with_capacity(documents.len());
+        let batch_size = get_rerank_batch_size(&self.device);
+        let mut all_scores = Vec::with_capacity(documents.len());
 
-        // Process each (query, document) pair
-        // Cross-encoder format: [CLS] query [SEP] document [SEP]
-        for doc in documents {
-            let score = self.score_pair(query, doc)?;
-            scores.push(score);
+        // Process in batches for better GPU utilization
+        for batch in documents.chunks(batch_size) {
+            let batch_scores = self.score_batch(query, batch)?;
+            all_scores.extend(batch_scores);
         }
 
-        Ok(scores)
+        Ok(all_scores)
     }
 
-    /// Score a single query-document pair
-    fn score_pair(&self, query: &str, document: &str) -> Result<f32> {
-        // Tokenize as a pair
-        let encoding = self.tokenizer
-            .encode((query, document), true)
+    /// Score a batch of query-document pairs
+    fn score_batch(&self, query: &str, documents: &[String]) -> Result<Vec<f32>> {
+        const MAX_SEQ_LEN: usize = 512;
+
+        // Tokenize all pairs
+        let pairs: Vec<(&str, &str)> = documents.iter().map(|d| (query, d.as_str())).collect();
+        let encodings = self.tokenizer
+            .encode_batch(pairs, true)
             .map_err(|e| anyhow::anyhow!("Tokenization failed: {}", e))?;
 
-        let ids = encoding.get_ids();
-        let mask = encoding.get_attention_mask();
-        let type_ids = encoding.get_type_ids();
+        // Find max length (capped at 512)
+        let max_len = encodings.iter()
+            .map(|e| e.get_ids().len().min(MAX_SEQ_LEN))
+            .max()
+            .unwrap_or(0);
 
-        let len = ids.len();
+        let batch_size = encodings.len();
 
-        let input_ids = Tensor::from_vec(ids.to_vec(), (1, len), &self.device)?;
-        let attention_mask = Tensor::from_vec(mask.to_vec(), (1, len), &self.device)?;
-        let token_type_ids = Tensor::from_vec(type_ids.to_vec(), (1, len), &self.device)?;
+        // Build padded tensors
+        let mut input_ids_vec = Vec::with_capacity(batch_size * max_len);
+        let mut attention_mask_vec = Vec::with_capacity(batch_size * max_len);
+        let mut token_type_ids_vec = Vec::with_capacity(batch_size * max_len);
 
-        // Run model
+        for encoding in &encodings {
+            let ids: Vec<u32> = encoding.get_ids().iter().take(MAX_SEQ_LEN).copied().collect();
+            let mask: Vec<u32> = encoding.get_attention_mask().iter().take(MAX_SEQ_LEN).copied().collect();
+            let types: Vec<u32> = encoding.get_type_ids().iter().take(MAX_SEQ_LEN).copied().collect();
+
+            let mut padded_ids = ids;
+            let mut padded_mask = mask;
+            let mut padded_types = types;
+
+            padded_ids.resize(max_len, 0);
+            padded_mask.resize(max_len, 0);
+            padded_types.resize(max_len, 0);
+
+            input_ids_vec.extend(padded_ids);
+            attention_mask_vec.extend(padded_mask);
+            token_type_ids_vec.extend(padded_types);
+        }
+
+        let input_ids = Tensor::from_vec(input_ids_vec, (batch_size, max_len), &self.device)?;
+        let attention_mask = Tensor::from_vec(attention_mask_vec, (batch_size, max_len), &self.device)?;
+        let token_type_ids = Tensor::from_vec(token_type_ids_vec, (batch_size, max_len), &self.device)?;
+
+        // Run model forward pass
         let output = self.model.forward(&input_ids, &token_type_ids, Some(&attention_mask))?;
 
-        // Get [CLS] token output (first token)
-        let cls_output = output.i((0, 0))?;
+        // Get [CLS] token output for each item in batch (first token, first hidden dim)
+        let cls_outputs = output.i((.., 0, 0))?;  // Shape: [batch_size]
+        let raw_scores: Vec<f32> = cls_outputs.to_vec1()?;
 
-        // For reranker, we typically use a linear layer on top of [CLS]
-        // But bge-reranker outputs the score directly from the first dimension
-        // Take the first value as the relevance score
-        let score: f32 = cls_output.i(0)?.to_scalar()?;
+        // Apply sigmoid to all scores
+        let scores: Vec<f32> = raw_scores.iter()
+            .map(|&s| 1.0 / (1.0 + (-s).exp()))
+            .collect();
 
-        // Apply sigmoid to get score between 0 and 1
-        let score = 1.0 / (1.0 + (-score).exp());
-
-        Ok(score)
+        Ok(scores)
     }
 
     /// Rerank search results and return sorted by reranker score

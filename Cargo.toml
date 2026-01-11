@@ -64,6 +64,7 @@ dirs = "5"
 
 # Chunking
 pulldown-cmark = "0.12"
+pdf_oxide = "0.2"
 
 # HTML to Markdown (for web scraping)
 fast_html2md = "0.0.48"
@@ -77,6 +78,14 @@ tantivy = "0.22"
 
 # Async
 futures = "0.3"
+
+# Encoding
+base64 = "0.22"
+
+[features]
+default = []
+cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 
 [dev-dependencies]
 tempfile = "3"
